@@ -1,0 +1,37 @@
+{
+	"web": {
+		"port": 1885,
+		"auth": {
+			"basic": true,
+			"username": "hoco",
+			"password": "admin"
+		},
+		"ssl": {
+			"enabled": false,
+			"keyfile": "/path/to/key.pem",
+			"certfile": "/path/to/cert.pem" 
+		},
+		"red": {
+			"enabled": true,
+			"datadir": "/home/hoco/red",
+			"admin": true,
+			"httpnodes": true,
+			"uipath": "red",
+			"apipath": "redapi"
+		},
+		"path": "/hoco/"
+	},
+	"mqtt": {
+		"protocol": "mqtts",
+		"host": "url_or_ip.com",
+		"port": 1883,
+		"username": "hoco",
+		"password": "admin"
+	},
+	"ota": {
+		"path": "ota",
+		"bindir": "/home/hoco/firmware"
+	},
+	"Timezone": "Europe/Berlin",
+	"PublishTimeInterval": 900
+}

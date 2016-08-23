@@ -1,0 +1,21 @@
+{
+  "name": "hoco",
+  "version": "1.0.0",
+  "description": "HoCo server managing OTA and NR flows",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "hoco"
+  ],
+  "author": "Tobias Hoff",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "basic-auth": "^1.0.4",
+    "formidable": "^1.0.17",
+    "moment-timezone": "^0.5.5",
+    "mqtt": "^1.12.0",
+    "node-red": "^0.14.4"
+  }
+}
