@@ -13,7 +13,8 @@ var moment = require('moment-timezone');
 var config = JSON.parse(fs.readFileSync(__dirname + "/config.json"));
 
 // ensure directories exist
-try { fs.mkdirSync(config.ota.bindir); } catch (err) {}
+try { fs.mkdirSync(__dirname + '/firmware'); } catch (err) {}
+try { fs.mkdirSync(__dirname + '/nodered'); } catch (err) {}
 
 // create express app and server
 var app = express();
@@ -48,51 +49,41 @@ app.use(function(req, res, next) {
     }
 });
 
+// serve static content
+app.use(express.static(__dirname + '/static'));
+
 // initialize node-red
-if (config.web.red.enabled) {
-	var redSettings = {
-	    httpAdminRoot: config.web.path + config.web.red.uipath,
-	    httpNodeRoot: config.web.path + config.web.red.apipath,
-	    userDir: config.web.red.datadir,
-	    functionGlobalContext: { }
-	};
-	red.init(server, redSettings);
-	if (config.web.red.admin)
-		app.use(redSettings.httpAdminRoot, red.httpAdmin);
-	if (config.web.red.httpnodes)
-		app.use(redSettings.httpNodeRoot, red.httpNode);
-}
+var redSettings = {
+    httpAdminRoot: '/red',
+    httpNodeRoot: '/redapi',
+    userDir: __dirname + '/nodered',
+    functionGlobalContext: { }
+};
+red.init(server, redSettings);
+app.use(redSettings.httpAdminRoot, red.httpAdmin);
+app.use(redSettings.httpNodeRoot, red.httpNode);
 
-// other useless stuff
-app.get('/favicon.ico', (req, res) => {
-	res.sendFile(__dirname + '/favicon.ico');
-});
-
-app.get(config.web.path + config.ota.path + '/images/ajax-loader.gif', (req, res) => {
-	res.sendFile(__dirname + '/ajax-loader.gif');
-});
-
-// OTA file upload and download
-function otaGetFilename(fields) {
+// FOTA file upload and download
+function fotaGetFilename(fields) {
 	return fields.hw + '_r' + fields.rev + '_' + fields.type + "_v" + fields.major + "." + fields.minor + "-" + fields.build + ".bin";
 }
 
-function otaGetLatestFilename(fields) {
+function fotaGetLatestFilename(fields) {
 	return fields.hw + '_r' + fields.rev + '_' + fields.type + ".latest";
 }
 
-function otaSetLatest(fields) {
-	var fn = otaGetLatestFilename(fields);
-	var fullfn = config.ota.bindir + '/' + fn;
+function fotaSetLatest(fields) {
+	var fn = fotaGetLatestFilename(fields);
+	var fullfn = __dirname + '/firmware/' + fn;
 	fs.writeFile(fullfn, fields.major + '.' + fields.minor + '.' + fields.build, {encoding: 'utf8'}, (err) => {
 		if (err)
 			console.log('Error writing file ' + fullfn);
 	});
 }
 
-function otaGetLatest(fields) {
-	var fn = otaGetLatestFilename(fields);
-	var fullfn = config.ota.bindir + '/' + fn;
+function fotaGetLatest(fields) {
+	var fn = fotaGetLatestFilename(fields);
+	var fullfn = __dirname + '/firmware/' + fn;
 	try {
 		fs.accessSync(fullfn);
 		var latestStr = fs.readFileSync(fullfn, {encoding: 'utf8'});
@@ -111,8 +102,8 @@ function otaGetLatest(fields) {
 	}
 }
 
-function otaCheckForUpdate(cver, hw, rev, type) {
-	var nver = otaGetLatest({ hw: hw, rev: rev, type: type });
+function fotaCheckForUpdate(cver, hw, rev, type) {
+	var nver = fotaGetLatest({ hw: hw, rev: rev, type: type });
 	if (!nver)
 		return null;
 	if (!cver)
@@ -130,11 +121,11 @@ function otaCheckForUpdate(cver, hw, rev, type) {
 	return null;
 }
 
-app.get(config.web.path + config.ota.path + '/upload', (req, res) => {
-	res.sendFile(__dirname + '/upload.html');
+app.get('/fota/upload', (req, res) => {
+	res.redirect('/fota/upload.html');
 });
 
-app.post(config.web.path + config.ota.path + '/upload', (req, res) => {
+app.post('/fota/upload', (req, res) => {
 	var form = new formidable.IncomingForm();
 	form.parse(req, (err, fields, files) => {
 		if (err)
@@ -144,12 +135,12 @@ app.post(config.web.path + config.ota.path + '/upload', (req, res) => {
 	});
 	form.on('end', function() {
 		try {
-			var fn = otaGetFilename(form.myfields);
+			var fn = fotaGetFilename(form.myfields);
 			var source = fs.createReadStream(form.myfiles.upload.path);
-			var dest = fs.createWriteStream(config.ota.bindir + '/' + fn);
+			var dest = fs.createWriteStream(__dirname + '/firmware/' + fn);
 			source.pipe(dest);
 			source.on('end', function() {
-				otaSetLatest(form.myfields);
+				fotaSetLatest(form.myfields);
 				res.writeHead(200);
 				res.end();
 				console.log('Uploaded ' + fn);
@@ -165,9 +156,9 @@ app.post(config.web.path + config.ota.path + '/upload', (req, res) => {
 	});
 });
 
-app.get(config.web.path + config.ota.path + '/download', (req, res) => {
+app.get('/fota/download', (req, res) => {
 	var fn = otaGetFilename(req.query);
-	var fullfn = config.ota.bindir + '/' + fn;
+	var fullfn = __dirname + '/firmware/' + fn;
 	fs.access(fullfn, (err) => {
 		if (err) {
 			res.writeHead(404);
@@ -194,7 +185,7 @@ var publishTimeInterval;
 
 function mqttPublishTime() {
 	var utc = moment.utc();
-	var off = moment.tz.zone(config.Timezone).offset(utc);
+	var off = moment.tz.zone(config.time.timezone).offset(utc);
 	mqttPublish('/hang/$time', Math.floor(utc / 1000).toString() + '/' + (off * 60).toString(), false);
 }
 
@@ -209,7 +200,7 @@ mqttConn.on('connect', () => {
 	mqttConn.subscribe('/hang/+/$time');
 	publishTimeInterval = setInterval(() => {
 		mqttPublishTime();
-	}, config.PublishTimeInterval * 1000);	
+	}, config.time.publish * 1000);	
 });
 
 mqttConn.on('message', (topic, message) => {
@@ -228,11 +219,11 @@ mqttConn.on('message', (topic, message) => {
 			if (entries.HARDWARE) {
 				var hw = entries.HARDWARE.type;
 				var rev = entries.HARDWARE.rev;
-				var nver = otaCheckForUpdate(entries.BOOTLOADER, hw, rev, "BOOTLOADER");
+				var nver = fotaCheckForUpdate(entries.BOOTLOADER, hw, rev, "BOOTLOADER");
 				if (!nver)
-					nver = otaCheckForUpdate(entries.FACTORY, hw, rev, "FACTORY");
+					nver = fotaCheckForUpdate(entries.FACTORY, hw, rev, "FACTORY");
 					if (!nver)
-						nver = otaCheckForUpdate(entries.FIRMWARE, hw, rev, "FIRMWARE");
+						nver = fotaCheckForUpdate(entries.FIRMWARE, hw, rev, "FIRMWARE");
 				if (nver)
 					mqttPublish("/hang/" + deviceId + "/$ota", JSON.stringify(nver), false);
 			}
@@ -241,6 +232,5 @@ mqttConn.on('message', (topic, message) => {
 });
 
 server.listen(config.web.port);
-if (config.web.red.enabled)
-	red.start();
+red.start();
 console.log("Listening on port " + config.web.port);
