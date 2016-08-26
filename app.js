@@ -157,7 +157,7 @@ app.post('/fota/upload', (req, res) => {
 });
 
 app.get('/fota/download', (req, res) => {
-	var fn = otaGetFilename(req.query);
+	var fn = fotaGetFilename(req.query);
 	var fullfn = __dirname + '/firmware/' + fn;
 	fs.access(fullfn, (err) => {
 		if (err) {
@@ -196,7 +196,7 @@ mqttConn.on('error', (err) => {
 
 mqttConn.on('connect', () => {
 	console.log('MQTT connected');
-	mqttConn.subscribe('/hang/+/$ota/check');
+	mqttConn.subscribe('/hang/+/$fota/check');
 	mqttConn.subscribe('/hang/+/$time');
 	publishTimeInterval = setInterval(() => {
 		mqttPublishTime();
@@ -214,7 +214,7 @@ mqttConn.on('message', (topic, message) => {
 		var deviceId = topicParts[2];
 		if (topicParts[3] == "$time")
 			mqttPublishTime();
-		else if (topicParts[3] == "$ota" && topicParts[4] == "check") {
+		else if (topicParts[3] == "$fota" && topicParts[4] == "check") {
 			var entries = JSON.parse(message);
 			if (entries.HARDWARE) {
 				var hw = entries.HARDWARE.type;
@@ -225,7 +225,7 @@ mqttConn.on('message', (topic, message) => {
 					if (!nver)
 						nver = fotaCheckForUpdate(entries.FIRMWARE, hw, rev, "FIRMWARE");
 				if (nver)
-					mqttPublish("/hang/" + deviceId + "/$ota", JSON.stringify(nver), false);
+					mqttPublish("/hang/" + deviceId + "/$fota", JSON.stringify(nver), false);
 			}
 		}
 	}
