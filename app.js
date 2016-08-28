@@ -186,7 +186,7 @@ var publishTimeInterval;
 function mqttPublishTime() {
 	var utc = moment.utc();
 	var off = moment.tz.zone(config.time.timezone).offset(utc);
-	mqttPublish('/hang/$time', Math.floor(utc / 1000).toString() + '/' + (off * 60).toString(), false);
+	mqttPublish('/hoco/$time', Math.floor(utc / 1000).toString() + '/' + (off * 60).toString(), false);
 }
 
 mqttConn.on('error', (err) => {
@@ -196,8 +196,8 @@ mqttConn.on('error', (err) => {
 
 mqttConn.on('connect', () => {
 	console.log('MQTT connected');
-	mqttConn.subscribe('/hang/+/$fota/check');
-	mqttConn.subscribe('/hang/+/$time');
+	mqttConn.subscribe('/hoco/+/$fota/check');
+	mqttConn.subscribe('/hoco/+/$time');
 	publishTimeInterval = setInterval(() => {
 		mqttPublishTime();
 	}, config.time.publish * 1000);	
@@ -208,7 +208,7 @@ mqttConn.on('message', (topic, message) => {
 	console.log('topic: ' + topic);
 	console.log('data: ' + message);
 	var topicParts = topic.split('/');
-	if (topicParts[1] != "hang")
+	if (topicParts[1] != "hoco")
 		return;
 	if (topicParts[2].lastIndexOf("$", 0) != 0) {
 		var deviceId = topicParts[2];
@@ -225,7 +225,7 @@ mqttConn.on('message', (topic, message) => {
 					if (!nver)
 						nver = fotaCheckForUpdate(entries.FIRMWARE, hw, rev, "FIRMWARE");
 				if (nver)
-					mqttPublish("/hang/" + deviceId + "/$fota", JSON.stringify(nver), false);
+					mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
 			}
 		}
 	}
