@@ -14,6 +14,7 @@ var config = JSON.parse(fs.readFileSync(__dirname + "/config.json"));
 
 // ensure directories exist
 try { fs.mkdirSync(__dirname + '/firmware'); } catch (err) {}
+try { fs.mkdirSync(__dirname + '/hwconfig'); } catch (err) {}
 try { fs.mkdirSync(__dirname + '/nodered'); } catch (err) {}
 
 // create express app and server
@@ -170,6 +171,20 @@ app.get('/hoco/fota/download', (req, res) => {
 	});
 });
 
+// Config
+function getConfig(deviceId) {
+	var fn = deviceId + '.json';
+	var fullfn = __dirname + '/hwconfig/' + fn;
+	try {
+		fs.accessSync(fullfn);
+		var cs = fs.readFileSync(fullfn, {encoding: 'utf8'});
+		var c = JSON.parse(cs);
+		return c;
+	} catch (ex) {
+		return null;
+	}
+}
+
 // MQTT connection
 var mqttUrl = config.mqtt.protocol + '://' + config.mqtt.host + ':' + config.mqtt.port;
 var mqttConn = mqtt.connect(mqttUrl, { username: config.mqtt.username, password: config.mqtt.password });
@@ -212,9 +227,13 @@ mqttConn.on('message', (topic, message) => {
 		return;
 	if (topicParts[2].lastIndexOf("$", 0) != 0) {
 		var deviceId = topicParts[2];
-		if (topicParts[3] == "$time")
+		if (topicParts[3] == "$time") {
 			mqttPublishTime();
-		else if (topicParts[3] == "$fota" && topicParts[4] == "check") {
+		} else if (topicParts[3] == "$config") {
+			var hwc = getConfig(deviceId);
+			if (hwc)
+				mqttPublish("/hoco/" + deviceId + "/$config/set", JSON.stringify(hwc), false);
+		} else if (topicParts[3] == "$fota" && topicParts[4] == "check") {
 			var entries = JSON.parse(message);
 			if (entries.HARDWARE) {
 				var hw = entries.HARDWARE.type;
