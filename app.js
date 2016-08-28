@@ -89,9 +89,9 @@ function fotaGetLatest(fields) {
 		var latestStr = fs.readFileSync(fullfn, {encoding: 'utf8'});
 		var latestStrs = latestStr.split('.');
 		var latestRes = {
-			hw: hw,
-			rev: rev,
-			type: type,
+			hw: fields.hw,
+			rev: fields.rev,
+			type: fields.type,
 			major: parseInt(latestStrs[0], 10),
 			minor: parseInt(latestStrs[1], 10),
 			build: parseInt(latestStrs[2], 10)
