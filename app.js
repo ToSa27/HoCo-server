@@ -50,12 +50,12 @@ app.use(function(req, res, next) {
 });
 
 // serve static content
-app.use(express.static(__dirname + '/static'));
+app.use('/hoco', express.static(__dirname + '/static'));
 
 // initialize node-red
 var redSettings = {
-    httpAdminRoot: '/red',
-    httpNodeRoot: '/redapi',
+    httpAdminRoot: '/hoco/red',
+    httpNodeRoot: '/hoco/redapi',
     userDir: __dirname + '/nodered',
     functionGlobalContext: { }
 };
@@ -121,11 +121,11 @@ function fotaCheckForUpdate(cver, hw, rev, type) {
 	return null;
 }
 
-app.get('/fota/upload', (req, res) => {
+app.get('/hoco/fota/upload', (req, res) => {
 	res.redirect('/fota/upload.html');
 });
 
-app.post('/fota/upload', (req, res) => {
+app.post('/hoco/fota/upload', (req, res) => {
 	var form = new formidable.IncomingForm();
 	form.parse(req, (err, fields, files) => {
 		if (err)
@@ -156,7 +156,7 @@ app.post('/fota/upload', (req, res) => {
 	});
 });
 
-app.get('/fota/download', (req, res) => {
+app.get('/hoco/fota/download', (req, res) => {
 	var fn = fotaGetFilename(req.query);
 	var fullfn = __dirname + '/firmware/' + fn;
 	fs.access(fullfn, (err) => {
@@ -208,6 +208,8 @@ mqttConn.on('message', (topic, message) => {
 	console.log('topic: ' + topic);
 	console.log('data: ' + message);
 	var topicParts = topic.split('/');
+	for (int i = 0; i < topicParts.length; i++)
+		console.log('topic part ' + i + ': ' + topicPart[i]);
 	if (topicParts[1] != "hoco")
 		return;
 	if (topicParts[2].lastIndexOf("$", 0) != 0) {
@@ -226,6 +228,8 @@ mqttConn.on('message', (topic, message) => {
 						nver = fotaCheckForUpdate(entries.FIRMWARE, hw, rev, "FIRMWARE");
 				if (nver)
 					mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
+				else
+					mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify({ type: "none" }), false);
 			}
 		}
 	}
