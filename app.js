@@ -208,8 +208,6 @@ mqttConn.on('message', (topic, message) => {
 	console.log('topic: ' + topic);
 	console.log('data: ' + message);
 	var topicParts = topic.split('/');
-	for (int i = 0; i < topicParts.length; i++)
-		console.log('topic part ' + i + ': ' + topicPart[i]);
 	if (topicParts[1] != "hoco")
 		return;
 	if (topicParts[2].lastIndexOf("$", 0) != 0) {
