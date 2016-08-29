@@ -175,10 +175,12 @@ app.get('/hoco/fota/download', (req, res) => {
 function getConfig(deviceId) {
 	var fn = deviceId + '.json';
 	var fullfn = __dirname + '/hwconfig/' + fn;
+	console.log("getConfig: " + deviceId);
 	try {
 		fs.accessSync(fullfn);
 		var cs = fs.readFileSync(fullfn, {encoding: 'utf8'});
 		var c = JSON.parse(cs);
+		console.log("c: " + JSON.stringify(c));
 		return c;
 	} catch (ex) {
 		return null;
@@ -212,6 +214,7 @@ mqttConn.on('error', (err) => {
 mqttConn.on('connect', () => {
 	console.log('MQTT connected');
 	mqttConn.subscribe('/hoco/+/$fota/check');
+        mqttConn.subscribe('/hoco/+/$config');
 	mqttConn.subscribe('/hoco/+/$time');
 	publishTimeInterval = setInterval(() => {
 		mqttPublishTime();
@@ -229,10 +232,10 @@ mqttConn.on('message', (topic, message) => {
 		var deviceId = topicParts[2];
 		if (topicParts[3] == "$time") {
 			mqttPublishTime();
-		} else if (topicParts[3] == "$config") {
+		} else if (topicParts[3] == "$config" && topicParts.length == 4) {
 			var hwc = getConfig(deviceId);
 			if (hwc)
-				mqttPublish("/hoco/" + deviceId + "/$config/set", JSON.stringify(hwc), false);
+				mqttPublish("/hoco/" + deviceId + "/$config/$set", JSON.stringify(hwc), false);
 		} else if (topicParts[3] == "$fota" && topicParts[4] == "check") {
 			var entries = JSON.parse(message);
 			if (entries.HARDWARE) {
