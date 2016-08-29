@@ -172,10 +172,11 @@ app.get('/hoco/fota/download', (req, res) => {
 });
 
 // Config
-function getConfig(deviceId) {
-	var fn = deviceId + '.json';
+function getConfig(deviceId, hw, rev) {
+	console.log("getConfig");
+//	var fn = deviceId + '.json';
+	var fn = hw + '_r' + rev + '.json';
 	var fullfn = __dirname + '/hwconfig/' + fn;
-	console.log("getConfig: " + deviceId);
 	try {
 		fs.accessSync(fullfn);
 		var cs = fs.readFileSync(fullfn, {encoding: 'utf8'});
@@ -233,7 +234,8 @@ mqttConn.on('message', (topic, message) => {
 		if (topicParts[3] == "$time") {
 			mqttPublishTime();
 		} else if (topicParts[3] == "$config" && topicParts.length == 4) {
-			var hwc = getConfig(deviceId);
+			var entries = JSON.parse(message);
+			var hwc = getConfig(deviceId, entries.hw, entries.rev);
 			if (hwc)
 				mqttPublish("/hoco/" + deviceId + "/$config/$set", JSON.stringify(hwc), false);
 		} else if (topicParts[3] == "$fota" && topicParts[4] == "check") {

@@ -1,0 +1,38 @@
+{
+	"d": [
+		{
+			"t": "DOut",
+			"n": "LedRed",
+			"c": {
+				"pin": 5,
+				"inv": 1
+			}
+		},
+		{
+			"t": "DOut",
+			"n": "LedYellow",
+			"c": {
+				"pin": 4,
+				"inv": 1
+			}
+		},
+		{
+			"t": "DOut",
+			"n": "LedGreen",
+			"c": {
+				"pin": 14,
+				"inv": 1
+			}
+		},
+		{
+			"t": "DIn",
+			"n": "Btn",
+			"c": {
+				"pin": 12,
+				"inv": 1,
+				"debounce": 250,
+				"trigger": 2
+			}
+		}
+	]
+}
