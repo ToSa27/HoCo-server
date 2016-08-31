@@ -203,7 +203,7 @@ var publishTimeInterval;
 
 function mqttPublishTime() {
 	var utc = moment.utc();
-	var off = moment.tz.zone(config.time.timezone).offset(utc);
+	var off = -moment.tz.zone(config.time.timezone).offset(utc);
 	mqttPublish('/hoco/$time', Math.floor(utc / 1000).toString() + '/' + (off * 60).toString(), false);
 }
 
