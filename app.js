@@ -266,10 +266,10 @@ function mqttPublishTime() {
 	mqttPublish('/hoco/$time/$epoch', Math.floor(utc / 1000).toString(), false);
 }
 
-function mqttPublishTimeZone() {
+function mqttPublishTimezone() {
 	var utc = moment.utc();
 	var off = -moment.tz.zone(config.time.timezone).offset(utc);
-	mqttPublish('/hoco/$time/$zone', (off * 60).toString(), false);
+	mqttPublish('/hoco/$time/$zone', (off * 60).toString(), true);
 }
 
 function mqttPublishDates() {
@@ -316,6 +316,7 @@ mqttConn.on('connect', () => {
 	publishTimeInterval = setInterval(() => {
 		mqttPublishTime();
 	}, config.time.publish * 1000);	
+	mqttPublishTimezone();
 	mqttPublishDates();
 });
 
