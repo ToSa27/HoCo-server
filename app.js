@@ -287,7 +287,10 @@ function mqttPublishDates() {
 	data.dates.vacation.sort((a,b) => { return a.from - b.from; });
 	for (var i = 0; i < data.dates.vacation.length; i++) {
 		if (data.dates.vacation[i].to > Math.floor(utc / 1000)) {
-			dates.v = data.dates.vacation[i];
+			dates.v = {
+				f: data.dates.vacation[i].from,
+				t: data.dates.vacation[i].to
+			};
 			break;
 		}
 	}
