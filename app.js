@@ -9,8 +9,22 @@ var mqtt = require('mqtt');
 var red = require("node-red");
 var moment = require('moment-timezone');
 
-// load config
+// load config and data
 var config = JSON.parse(fs.readFileSync(__dirname + "/config.json"));
+var data = JSON.parse(fs.readFileSync(__dirname + "/data.json"));
+
+data.dates = {
+	"holidays": [
+		1473379200,
+		1473811200
+	],
+	"vacation": [
+		{
+			"from": 1473033600,
+			"to": 1473206400
+		}
+	]
+};
 
 // ensure directories exist
 try { fs.mkdirSync(__dirname + '/firmware'); } catch (err) {}
@@ -64,43 +78,88 @@ red.init(server, redSettings);
 app.use(redSettings.httpAdminRoot, red.httpAdmin);
 app.use(redSettings.httpNodeRoot, red.httpNode);
 
+// save changed data
+function dataSave() {
+	fs.writeFile(__dirname + "/data.json", JSON.stringify(data), {encoding: 'utf8'}, (err) => {
+		if (err)
+			console.log('Error writing data');
+	});
+}
+
 // FOTA file upload and download
 function fotaGetFilename(fields) {
 	return fields.hw + '_r' + fields.rev + '_' + fields.type + "_v" + fields.major + "." + fields.minor + "-" + fields.build + ".bin";
 }
 
-function fotaGetLatestFilename(fields) {
-	return fields.hw + '_r' + fields.rev + '_' + fields.type + ".latest";
-}
+//function fotaGetLatestFilename(fields) {
+//	return fields.hw + '_r' + fields.rev + '_' + fields.type + ".latest";
+//}
 
 function fotaSetLatest(fields) {
-	var fn = fotaGetLatestFilename(fields);
-	var fullfn = __dirname + '/firmware/' + fn;
-	fs.writeFile(fullfn, fields.major + '.' + fields.minor + '.' + fields.build, {encoding: 'utf8'}, (err) => {
-		if (err)
-			console.log('Error writing file ' + fullfn);
-	});
+	if (!("firmware" in data))
+		data.set("firmware", {});
+	var fw = data.firmware;
+	if (!(fields.hw in fw))
+		fw.set(fields.hw, {});
+	var hw = fw.get(fields.hw);
+	if (!(fields.rev in hw))
+		hw.set(fields.rev, {});
+	var rev = hw.get(fields.rev);
+	if (!(fields.type in rev))
+		rev.set(fields.type, {});
+	var type = rev.get(fields.type);
+	type.set("major", fields.major);
+	type.set("minor", fields.minor);
+	type.set("build", fields.build);
+	dataSave();
+//	var fn = fotaGetLatestFilename(fields);
+//	var fullfn = __dirname + '/firmware/' + fn;
+//	fs.writeFile(fullfn, fields.major + '.' + fields.minor + '.' + fields.build, {encoding: 'utf8'}, (err) => {
+//		if (err)
+//			console.log('Error writing file ' + fullfn);
+//	});
 }
 
 function fotaGetLatest(fields) {
-	var fn = fotaGetLatestFilename(fields);
-	var fullfn = __dirname + '/firmware/' + fn;
-	try {
-		fs.accessSync(fullfn);
-		var latestStr = fs.readFileSync(fullfn, {encoding: 'utf8'});
-		var latestStrs = latestStr.split('.');
-		var latestRes = {
-			hw: fields.hw,
-			rev: fields.rev,
-			type: fields.type,
-			major: parseInt(latestStrs[0], 10),
-			minor: parseInt(latestStrs[1], 10),
-			build: parseInt(latestStrs[2], 10)
-		};
-		return latestRes;
-	} catch (ex) {
+	if (!("firmware" in data))
 		return null;
-	}
+	var fw = data.firmware;
+	if (!(fields.hw in fw))
+		return null;
+	var hw = fw.get(fields.hw);
+	if (!(fields.rev in hw))
+		return null;
+	var rev = hw.get(fields.rev);
+	if (!(fields.type in rev))
+		return null;
+	var type = rev.get(fields.type);
+	var latestRes = {
+		hw: fields.hw,
+		rev: fields.rev,
+		type: fields.type,
+		major: type.major,
+		minor: type.minor,
+		build: type.build
+	};
+	return latestRes;
+//	var fn = fotaGetLatestFilename(fields);
+//	var fullfn = __dirname + '/firmware/' + fn;
+//	try {
+//		fs.accessSync(fullfn);
+//		var latestStr = fs.readFileSync(fullfn, {encoding: 'utf8'});
+//		var latestStrs = latestStr.split('.');
+//		var latestRes = {
+//			hw: fields.hw,
+//			rev: fields.rev,
+//			type: fields.type,
+//			major: parseInt(latestStrs[0], 10),
+//			minor: parseInt(latestStrs[1], 10),
+//			build: parseInt(latestStrs[2], 10)
+//		};
+//		return latestRes;
+//	} catch (ex) {
+//		return null;
+//	}
 }
 
 function fotaCheckForUpdate(cver, hw, rev, type) {
@@ -207,6 +266,34 @@ function mqttPublishTime() {
 	mqttPublish('/hoco/$time', Math.floor(utc / 1000).toString() + '/' + (off * 60).toString(), false);
 }
 
+function mqttPublishDates() {
+	var utc = moment.utc();
+	var dates = {
+		h: [],
+		v: {}
+	};
+	// find next two holiday entries
+	data.dates.holidays.sort((a,b) => { return a - b; });
+	var c = 0;
+	for (var i = 0; i < data.dates.holidays.length; i++) {
+		if (data.dates.holidays[i] > Math.floor(utc / 1000)) {
+			dates.h.push(data.dates.holidays[i]);
+			c++;
+			if (c >= 2)
+				break;
+		}
+	}
+	// find next vacation entry
+	data.dates.vacation.sort((a,b) => { return a.from - b.from; });
+	for (var i = 0; i < data.dates.vacation.length; i++) {
+		if (data.dates.vacation[i].to > Math.floor(utc / 1000)) {
+			dates.v = data.dates.vacation[i];
+			break;
+		}
+	}
+	mqttPublish('/hoco/$dates', JSON.stringify(dates), true);
+}
+
 mqttConn.on('error', (err) => {
 	console.log('MQTT error: ' + err);
 	clearInterval(publishTimeInterval);
@@ -220,6 +307,7 @@ mqttConn.on('connect', () => {
 	publishTimeInterval = setInterval(() => {
 		mqttPublishTime();
 	}, config.time.publish * 1000);	
+	mqttPublishDates();
 });
 
 mqttConn.on('message', (topic, message) => {
