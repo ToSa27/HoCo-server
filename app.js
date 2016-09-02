@@ -263,8 +263,13 @@ var publishTimeInterval;
 
 function mqttPublishTime() {
 	var utc = moment.utc();
+	mqttPublish('/hoco/$time/$epoch', Math.floor(utc / 1000).toString(), false);
+}
+
+function mqttPublishTimeZone() {
+	var utc = moment.utc();
 	var off = -moment.tz.zone(config.time.timezone).offset(utc);
-	mqttPublish('/hoco/$time', Math.floor(utc / 1000).toString() + '/' + (off * 60).toString(), false);
+	mqttPublish('/hoco/$time/$zone', (off * 60).toString(), false);
 }
 
 function mqttPublishDates() {
@@ -295,7 +300,7 @@ function mqttPublishDates() {
 			break;
 		}
 	}
-	mqttPublish('/hoco/$dates', JSON.stringify(dates), true);
+	mqttPublish('/hoco/$time/$dates', JSON.stringify(dates), true);
 }
 
 mqttConn.on('error', (err) => {
