@@ -97,20 +97,20 @@ function fotaGetFilename(fields) {
 
 function fotaSetLatest(fields) {
 	if (!("firmware" in data))
-		data.set("firmware", {});
+		data["firmware"] = {};
 	var fw = data.firmware;
 	if (!(fields.hw in fw))
-		fw.set(fields.hw, {});
+		fw[fields.hw] = {};
 	var hw = fw.get(fields.hw);
 	if (!(fields.rev in hw))
-		hw.set(fields.rev, {});
+		hw[fields.rev] = {};
 	var rev = hw.get(fields.rev);
 	if (!(fields.type in rev))
-		rev.set(fields.type, {});
+		rev[fields.type] = {};
 	var type = rev.get(fields.type);
-	type.set("major", fields.major);
-	type.set("minor", fields.minor);
-	type.set("build", fields.build);
+	type["major"] = fields.major;
+	type["minor"] = fields.minor;
+	type["build"] = fields.build;
 	dataSave();
 //	var fn = fotaGetLatestFilename(fields);
 //	var fullfn = __dirname + '/firmware/' + fn;
