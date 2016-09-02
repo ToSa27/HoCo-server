@@ -11,7 +11,8 @@ var moment = require('moment-timezone');
 
 // load config and data
 var config = JSON.parse(fs.readFileSync(__dirname + "/config.json"));
-var data = JSON.parse(fs.readFileSync(__dirname + "/data.json"));
+var data = {};
+try { JSON.parse(fs.readFileSync(__dirname + "/data.json")); } catch (err) {}
 
 data.dates = {
 	"holidays": [
@@ -101,13 +102,13 @@ function fotaSetLatest(fields) {
 	var fw = data.firmware;
 	if (!(fields.hw in fw))
 		fw[fields.hw] = {};
-	var hw = fw.get(fields.hw);
+	var hw = fw[fields.hw];
 	if (!(fields.rev in hw))
 		hw[fields.rev] = {};
-	var rev = hw.get(fields.rev);
+	var rev = hw[fields.rev];
 	if (!(fields.type in rev))
 		rev[fields.type] = {};
-	var type = rev.get(fields.type);
+	var type = rev[fields.type];
 	type["major"] = fields.major;
 	type["minor"] = fields.minor;
 	type["build"] = fields.build;
@@ -126,13 +127,13 @@ function fotaGetLatest(fields) {
 	var fw = data.firmware;
 	if (!(fields.hw in fw))
 		return null;
-	var hw = fw.get(fields.hw);
+	var hw = fw[fields.hw];
 	if (!(fields.rev in hw))
 		return null;
-	var rev = hw.get(fields.rev);
+	var rev = hw[fields.rev];
 	if (!(fields.type in rev))
 		return null;
-	var type = rev.get(fields.type);
+	var type = rev[fields.type];
 	var latestRes = {
 		hw: fields.hw,
 		rev: fields.rev,
