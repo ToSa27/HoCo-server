@@ -11,8 +11,13 @@ var moment = require('moment-timezone');
 
 // load config and data
 var config = JSON.parse(fs.readFileSync(__dirname + "/config.json"));
-var data = {};
-try { JSON.parse(fs.readFileSync(__dirname + "/data.json")); } catch (err) {}
+var data = {
+	dates: {
+		"holidays": [],
+		"vacation": []
+	}
+};
+try { data = JSON.parse(fs.readFileSync(__dirname + "/data.json")); } catch (err) {}
 
 data.dates = {
 	"holidays": [
@@ -92,10 +97,6 @@ function fotaGetFilename(fields) {
 	return fields.hw + '_r' + fields.rev + '_' + fields.type + "_v" + fields.major + "." + fields.minor + "-" + fields.build + ".bin";
 }
 
-//function fotaGetLatestFilename(fields) {
-//	return fields.hw + '_r' + fields.rev + '_' + fields.type + ".latest";
-//}
-
 function fotaSetLatest(fields) {
 	if (!("firmware" in data))
 		data["firmware"] = {};
@@ -113,12 +114,6 @@ function fotaSetLatest(fields) {
 	type["minor"] = fields.minor;
 	type["build"] = fields.build;
 	dataSave();
-//	var fn = fotaGetLatestFilename(fields);
-//	var fullfn = __dirname + '/firmware/' + fn;
-//	fs.writeFile(fullfn, fields.major + '.' + fields.minor + '.' + fields.build, {encoding: 'utf8'}, (err) => {
-//		if (err)
-//			console.log('Error writing file ' + fullfn);
-//	});
 }
 
 function fotaGetLatest(fields) {
@@ -143,24 +138,6 @@ function fotaGetLatest(fields) {
 		build: type.build
 	};
 	return latestRes;
-//	var fn = fotaGetLatestFilename(fields);
-//	var fullfn = __dirname + '/firmware/' + fn;
-//	try {
-//		fs.accessSync(fullfn);
-//		var latestStr = fs.readFileSync(fullfn, {encoding: 'utf8'});
-//		var latestStrs = latestStr.split('.');
-//		var latestRes = {
-//			hw: fields.hw,
-//			rev: fields.rev,
-//			type: fields.type,
-//			major: parseInt(latestStrs[0], 10),
-//			minor: parseInt(latestStrs[1], 10),
-//			build: parseInt(latestStrs[2], 10)
-//		};
-//		return latestRes;
-//	} catch (ex) {
-//		return null;
-//	}
 }
 
 function fotaCheckForUpdate(cver, hw, rev, type) {
