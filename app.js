@@ -62,6 +62,7 @@ if (config.web.ssl.enabled) {
 } else {
 	server = http.createServer(app);
 }
+var fotaServer = http.createServer(app);
 
 // logging requests
 app.use(logger('dev'));
@@ -577,4 +578,6 @@ mqttConn.on('message', (topic, message) => {
 
 server.listen(config.web.port);
 red.start();
-console.log("Listening on port " + config.web.port);
+console.log("Web listening on port " + config.web.port);
+fotaServer.listen(config.web.fotaPort);
+console.log("FOTA listening on port " + config.web.fotaPort);
