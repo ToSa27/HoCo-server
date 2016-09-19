@@ -145,7 +145,7 @@ oauthProvider.on('remove_grant', function(user_id, client_id, code) {
 
 oauthProvider.on('lookup_grant', function(client_id, client_secret, code, next) {
 	console.log("oauthProvider.on lookup_grant");
-	if(client_id in oauthClients && oauthClients[client_id] == client_secret) {
+	if(client_id in config.api.localOAuthClients && config.api.localOAuthClients[client_id] == client_secret) {
 		for(var user in oauthGrants) {
 			var clients = oauthGrants[user];
 			if(clients[client_id] && clients[client_id] == code)
@@ -416,7 +416,7 @@ app.post('/hoco/fota/upload', checkBasicAuth, (req, res) => {
 	});
 });
 
-app.get('/hoco/fota/download', checkBasicAuth, (req, res) => {
+fotaApp.get('/hoco/fota/download', checkBasicAuth, (req, res) => {
 	var fn = fotaGetFilename(req.query);
 	var fullfn = __dirname + '/firmware/' + fn;
 	fs.access(fullfn, (err) => {
