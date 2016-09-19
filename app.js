@@ -4,10 +4,17 @@ var basicAuth = require('basic-auth');
 var fs = require('fs');
 var path = require('path');
 var express = require("express");
+var session = require("express-session");
+var MemoryStore = session.MemoryStore;
+var bodyParser = require("body-parser");
+var cookieParser = require("cookie-parser");
+var logger = require("morgan");
 var formidable = require("formidable");
 var mqtt = require('mqtt');
 var red = require("node-red");
 var moment = require('moment-timezone');
+var request = require('request');
+//var OAuth2Provider = require('oauth2-provider').OAuth2Provider;
 
 // load config and data
 var config = JSON.parse(fs.readFileSync(__dirname + "/config.json"));
@@ -15,7 +22,8 @@ var data = {
 	dates: {
 		"holidays": [],
 		"vacation": []
-	}
+	},
+	devices: []
 };
 try { data = JSON.parse(fs.readFileSync(__dirname + "/data.json")); } catch (err) {}
 
@@ -30,6 +38,11 @@ data.dates = {
 			"to": 1473206400
 		}
 	]
+};
+
+data.devices = {
+	"HoCo001": { "name": "light", "node": "HoCo_0C23FA", "device": "LedRed", "property": "on", "type": "onoff", "onvalue": "1", "offvalue": "0", "description": "Deckenleuchte Wohnzimmer" },
+        "HoCo002": { "name": "garden", "node": "HoCo_0C23FA", "device": "WaterFlow", "property": "count", "type": "read", "description": "Durchfluss Gartenbewaesserung" }
 };
 
 // ensure directories exist
@@ -49,6 +62,16 @@ if (config.web.ssl.enabled) {
 } else {
 	server = http.createServer(app);
 }
+
+// logging requests
+app.use(logger('dev'));
+//app.use(logger(':remote-addr :referrer :method :url :status :response-time ms - :res[content-length]'));
+
+// parsing requests
+app.use(bodyParser.urlencoded({extended: true}));
+app.use(express.query());
+app.use(cookieParser());
+app.use(session({store: new MemoryStore({reapInterval: 5 * 60 * 1000}), secret: 'abracadabra', resave: true, saveUninitialized: true}));
 
 // basic authentication handler
 app.use(function(req, res, next) {
@@ -83,6 +106,216 @@ var redSettings = {
 red.init(server, redSettings);
 app.use(redSettings.httpAdminRoot, red.httpAdmin);
 app.use(redSettings.httpNodeRoot, red.httpNode);
+
+// oauth2 for alexa
+/*
+var oauthClients = {
+	'alexa-skill': 'HoCoClientSecret'
+};
+
+var oauthGrants = {};
+
+var oauthProvider = new OAuth2Provider({
+	crypt_key: 'encryption secret',
+	sign_key: 'signing secret',
+	authorize_uri: '/hoco/authorise',
+        access_token_uri: '/hoco/token'
+});
+
+oauthProvider.on('enforce_login', function(req, res, authorize_url, next) {
+	console.log("oauthProvider.on enforce_login");
+	if(req.session.user) {
+		next(req.session.user);
+	} else {
+		res.writeHead(303, {Location: '/hoco/login?next=' + encodeURIComponent(authorize_url)});
+		res.end();
+	}
+});
+
+oauthProvider.on('authorize_form', function(req, res, client_id, authorize_url) {
+        console.log("oauthProvider.on authorize_form");
+	res.end('<html>this app wants to access your account... <form method="post" action="' + authorize_url + '"><button name="allow">Allow</button><button name="deny">Deny</button></form>');
+});
+
+oauthProvider.on('save_grant', function(req, client_id, code, next) {
+        console.log("oauthProvider.on save_grant");
+	if(!(req.session.user in oauthGrants))
+		oauthGrants[req.session.user] = {};
+	oauthGrants[req.session.user][client_id] = code;
+	next();
+});
+
+oauthProvider.on('remove_grant', function(user_id, client_id, code) {
+        console.log("oauthProvider.on remove_grant");
+	if(oauthGrants[user_id] && oauthGrants[user_id][client_id])
+		delete oauthGrants[user_id][client_id];
+});
+
+oauthProvider.on('lookup_grant', function(client_id, client_secret, code, next) {
+        console.log("oauthProvider.on lookup_grant");
+	if(client_id in oauthClients && oauthClients[client_id] == client_secret) {
+		for(var user in oauthGrants) {
+			var clients = oauthGrants[user];
+			if(clients[client_id] && clients[client_id] == code)
+				return next(null, user);
+		}
+	}
+	next(new Error('no such grant found'));
+});
+
+oauthProvider.on('create_access_token', function(user_id, client_id, next) {
+        console.log("oauthProvider.on create_access_token");
+	var extra_data = 'blah'; // can be any data type or null
+	//var oauth_params = {token_type: 'bearer'};
+//	next(extra_data, oauth_params);
+        next(extra_data);
+});
+
+oauthProvider.on('save_access_token', function(user_id, client_id, access_token) {
+        console.log("oauthProvider.on save_access_token");
+	console.log('saving access token %s for user_id=%s client_id=%s', JSON.stringify(access_token), user_id, client_id);
+});
+
+oauthProvider.on('access_token', function(req, token, next) {
+        console.log("oauthProvider.on access_token");
+	var TOKEN_TTL = 10 * 60 * 1000; // 10 minutes
+	if(token.grant_date.getTime() + TOKEN_TTL > Date.now()) {
+		req.session.user = token.user_id;
+		req.session.data = token.extra_data;
+	} else {
+		console.warn('access token for user %s has expired', token.user_id);
+	}
+	next();
+});
+
+oauthProvider.on('client_auth', function(client_id, client_secret, username, password, next) {
+        console.log("oauthProvider.on client_auth");
+	if(client_id == 'alexa_skill' && username == 'hoco') {
+		var user_id = '1337';
+		return next(null, user_id);
+	}
+	return next(new Error('client authentication denied'));
+});
+
+app.use(oauthProvider.oauth());
+app.use(oauthProvider.login());
+
+app.get('/hoco/login', function(req, res, next) {
+	if(req.session.user) {
+		res.writeHead(303, {Location: '/'});
+		return res.end();
+	}
+	var next_url = req.query.next ? req.query.next : '/';
+	res.end('<html><form method="post" action="/hoco/login"><input type="hidden" name="next" value="' + next_url + '"><input type="text" placeholder="username" name="username"><input type="password" placeholder="password" name="password"><button type="submit">Login</button></form>');
+});
+
+app.post('/hoco/login', function(req, res, next) {
+	req.session.user = req.body.username;
+	res.writeHead(303, {Location: req.body.next || '/'});
+	res.end();
+});
+
+app.get('/hoco/logout', function(req, res, next) {
+	req.session.destroy(function(err) {
+		res.writeHead(303, {Location: '/'});
+		res.end();
+	});
+});
+*/
+
+app.get('/hoco/privacypolicy', function (req, res) {
+	res.send('this is the hoco Privacy Policy URL placeholder');
+});
+
+app.get('/hoco/termsofuse', function (req, res) {
+        res.send('this is the hoco Terms of Use URL placeholder');
+});
+
+function getAmazonProfile(token, cb) {
+	var url = 'https://api.amazon.com/user/profile?access_token=' + token;
+	request(url, function(error, response, body) {
+		if (response.statusCode == 200)
+			cb(JSON.parse(body));
+		else
+			cb(null);
+	});
+//	https.get(url, function(res) {
+//		if (res.statusCode == 200) {
+//			cb(JSON.parse(res.body));
+//		} else
+//			cb(null);
+//	});
+}
+
+app.get('/hoco/api/devices', function(req, res, next) {
+	var token = req.query.token;
+	getAmazonProfile(token, function(profile) {
+		console.log('Amazon profile: ' + JSON.stringify(profile));
+		if (profile) {
+			if (profile.email === config.api.amazonEmail) {
+				devices = [];
+				Object.keys(data.devices).forEach(function(key) {
+					var val = data.devices[key];
+					var actions = [];
+					if (val.type === 'onoff') {
+						actions.push("turnOn");
+                                                actions.push("turnOff");
+					}
+					var device = {
+                                                "applianceId": key,
+                                                "manufacturerName": "HoCo",
+                                                "modelName": "Virtual Node:Device Combination",
+                                                "version": "1.1",
+                                                "friendlyName": val.name,
+                                                "friendlyDescription": val.description,
+                                                "isReachable": true,
+                                                "actions": actions,
+                                                "additionalApplianceDetails": {
+                                                }
+					};
+					devices.push(device);
+				});
+				console.log('send result');
+				res.end(JSON.stringify(devices));
+				return;
+			}
+		}
+		console.log('send failure');
+		res.writeHead(403);
+		res.end('{}');
+	});
+});
+
+app.get('/hoco/api/:applianceId', function(req, res, next) {
+        console.log('applianceId: ' + req.params.applianceId);
+        console.log('value: ' + req.query.value);
+        var token = req.query.token;
+        getAmazonProfile(token, function(profile) {
+                console.log('Amazon profile: ' + JSON.stringify(profile));
+                if (profile) {
+                        if (profile.email === config.api.amazonEmail) {
+				var device = data.devices[req.params.applianceId];
+				if (device.type === "onoff") {
+					var val;
+					if (req.query.value === "on")
+						val = device.onvalue;
+                                        if (req.query.value === "off")
+                                                val = device.offvalue;
+					if (val)
+						mqttPublish('/hoco/' + device.node + '/' + device.device + '/' + device.property + '/$set', val, false);
+				}
+                                console.log('send result');
+                                response = {
+                                };
+                                res.end(JSON.stringify(response));
+                                return;
+                        }
+                }
+                console.log('send failure');
+                res.writeHead(403);
+                res.end('{}');
+        });
+});
 
 // save changed data
 function dataSave() {
@@ -211,17 +444,27 @@ app.get('/hoco/fota/download', (req, res) => {
 // Config
 function getConfig(deviceId, hw, rev) {
 	console.log("getConfig");
-//	var fn = deviceId + '.json';
-	var fn = hw + '_r' + rev + '.json';
-	var fullfn = __dirname + '/hwconfig/' + fn;
 	try {
+		var fn = deviceId + '.json';
+		var fullfn = __dirname + '/hwconfig/device/' + fn;
 		fs.accessSync(fullfn);
 		var cs = fs.readFileSync(fullfn, {encoding: 'utf8'});
 		var c = JSON.parse(cs);
-		console.log("c: " + JSON.stringify(c));
+		console.log("device level config: " + JSON.stringify(c));
 		return c;
 	} catch (ex) {
-		return null;
+		try {
+			var fn = hw + '_r' + rev + '.json';
+			var fullfn = __dirname + '/hwconfig/hwrev/' + fn;
+			fs.accessSync(fullfn);
+			var cs = fs.readFileSync(fullfn, {encoding: 'utf8'});
+			var c = JSON.parse(cs);
+			console.log("hw/rev level config: " + JSON.stringify(c));
+			return c;
+		} catch (ex) {
+			console.log("no config found");
+			return null;
+		}
 	}
 }
 
