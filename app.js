@@ -14,7 +14,7 @@ var mqtt = require('mqtt');
 var red = require("node-red");
 var moment = require('moment-timezone');
 var request = require('request');
-//var OAuth2Provider = require('oauth2-provider').OAuth2Provider;
+var OAuth2Provider = require('oauth2-provider').OAuth2Provider;
 
 // load config and data
 var config = JSON.parse(fs.readFileSync(__dirname + "/config.json"));
@@ -42,7 +42,7 @@ data.dates = {
 
 data.devices = {
 	"HoCo001": { "name": "light", "node": "HoCo_0C23FA", "device": "LedRed", "property": "on", "type": "onoff", "onvalue": "1", "offvalue": "0", "description": "Deckenleuchte Wohnzimmer" },
-        "HoCo002": { "name": "garden", "node": "HoCo_0C23FA", "device": "WaterFlow", "property": "count", "type": "read", "description": "Durchfluss Gartenbewaesserung" }
+	"HoCo002": { "name": "garden", "node": "HoCo_0C23FA", "device": "WaterFlow", "property": "count", "type": "read", "description": "Durchfluss Gartenbewaesserung" }
 };
 
 // ensure directories exist
@@ -62,7 +62,8 @@ if (config.web.ssl.enabled) {
 } else {
 	server = http.createServer(app);
 }
-var fotaServer = http.createServer(app);
+var fotaApp = express();
+var fotaServer = http.createServer(fotaApp);
 
 // logging requests
 app.use(logger('dev'));
@@ -95,7 +96,7 @@ function checkBasicAuth(req, res, next) {
 }
 
 // serve static content
-app.use('/hoco', checkBasicAuth, express.static(__dirname + '/static'));
+app.use('/hoco', express.static(__dirname + '/static'));
 
 // initialize node-red
 var redSettings = {
@@ -109,19 +110,9 @@ app.use(redSettings.httpAdminRoot, checkBasicAuth, red.httpAdmin);
 app.use(redSettings.httpNodeRoot, checkBasicAuth, red.httpNode);
 
 // oauth2 for alexa
-/*
-var oauthClients = {
-	'alexa-skill': 'HoCoClientSecret'
-};
-
 var oauthGrants = {};
 
-var oauthProvider = new OAuth2Provider({
-	crypt_key: 'encryption secret',
-	sign_key: 'signing secret',
-	authorize_uri: '/hoco/authorise',
-        access_token_uri: '/hoco/token'
-});
+var oauthProvider = new OAuth2Provider(config.api.localOAuthOptions);
 
 oauthProvider.on('enforce_login', function(req, res, authorize_url, next) {
 	console.log("oauthProvider.on enforce_login");
@@ -134,12 +125,12 @@ oauthProvider.on('enforce_login', function(req, res, authorize_url, next) {
 });
 
 oauthProvider.on('authorize_form', function(req, res, client_id, authorize_url) {
-        console.log("oauthProvider.on authorize_form");
+	console.log("oauthProvider.on authorize_form");
 	res.end('<html>this app wants to access your account... <form method="post" action="' + authorize_url + '"><button name="allow">Allow</button><button name="deny">Deny</button></form>');
 });
 
 oauthProvider.on('save_grant', function(req, client_id, code, next) {
-        console.log("oauthProvider.on save_grant");
+	console.log("oauthProvider.on save_grant");
 	if(!(req.session.user in oauthGrants))
 		oauthGrants[req.session.user] = {};
 	oauthGrants[req.session.user][client_id] = code;
@@ -147,13 +138,13 @@ oauthProvider.on('save_grant', function(req, client_id, code, next) {
 });
 
 oauthProvider.on('remove_grant', function(user_id, client_id, code) {
-        console.log("oauthProvider.on remove_grant");
+	console.log("oauthProvider.on remove_grant");
 	if(oauthGrants[user_id] && oauthGrants[user_id][client_id])
 		delete oauthGrants[user_id][client_id];
 });
 
 oauthProvider.on('lookup_grant', function(client_id, client_secret, code, next) {
-        console.log("oauthProvider.on lookup_grant");
+	console.log("oauthProvider.on lookup_grant");
 	if(client_id in oauthClients && oauthClients[client_id] == client_secret) {
 		for(var user in oauthGrants) {
 			var clients = oauthGrants[user];
@@ -165,20 +156,20 @@ oauthProvider.on('lookup_grant', function(client_id, client_secret, code, next) 
 });
 
 oauthProvider.on('create_access_token', function(user_id, client_id, next) {
-        console.log("oauthProvider.on create_access_token");
+	console.log("oauthProvider.on create_access_token");
 	var extra_data = 'blah'; // can be any data type or null
 	//var oauth_params = {token_type: 'bearer'};
-//	next(extra_data, oauth_params);
-        next(extra_data);
+	//next(extra_data, oauth_params);
+	next(extra_data);
 });
 
 oauthProvider.on('save_access_token', function(user_id, client_id, access_token) {
-        console.log("oauthProvider.on save_access_token");
+	console.log("oauthProvider.on save_access_token");
 	console.log('saving access token %s for user_id=%s client_id=%s', JSON.stringify(access_token), user_id, client_id);
 });
 
 oauthProvider.on('access_token', function(req, token, next) {
-        console.log("oauthProvider.on access_token");
+	console.log("oauthProvider.on access_token");
 	var TOKEN_TTL = 10 * 60 * 1000; // 10 minutes
 	if(token.grant_date.getTime() + TOKEN_TTL > Date.now()) {
 		req.session.user = token.user_id;
@@ -190,7 +181,7 @@ oauthProvider.on('access_token', function(req, token, next) {
 });
 
 oauthProvider.on('client_auth', function(client_id, client_secret, username, password, next) {
-        console.log("oauthProvider.on client_auth");
+	console.log("oauthProvider.on client_auth");
 	if(client_id == 'alexa_skill' && username == 'hoco') {
 		var user_id = '1337';
 		return next(null, user_id);
@@ -198,8 +189,8 @@ oauthProvider.on('client_auth', function(client_id, client_secret, username, pas
 	return next(new Error('client authentication denied'));
 });
 
-app.use(oauthProvider.oauth());
-app.use(oauthProvider.login());
+//app.use(oauthProvider.oauth());
+//app.use(oauthProvider.login());
 
 app.get('/hoco/login', function(req, res, next) {
 	if(req.session.user) {
@@ -222,7 +213,6 @@ app.get('/hoco/logout', function(req, res, next) {
 		res.end();
 	});
 });
-*/
 
 app.get('/hoco/privacypolicy', function (req, res) {
 	res.send('this is the hoco Privacy Policy URL placeholder');
@@ -256,7 +246,21 @@ function checkAmazonAuth(req, res, next) {
 	});
 }
 
-app.get('/hoco/api/devices', checkAmazonAuth, function(req, res, next) {
+function checkLocalOAuth(req, res, next) {
+	oauthProvider.oauth()(req, res, oauthProvider.login()(req, res,next));
+}
+
+function checkOAuth(req, res, next) {
+	if (config.api.loginWithAmazon) {
+		checkAmazonAuth(req, res, next);
+	} else if (config.api.localOAuth) {
+		checkLocalOAuth(req, res, next);
+	} else {
+		next();
+	}
+}
+
+app.get('/hoco/api/devices', checkOAuth, function(req, res, next) {
 	devices = [];
 	Object.keys(data.devices).forEach(function(key) {
 		var val = data.devices[key];
@@ -283,7 +287,7 @@ app.get('/hoco/api/devices', checkAmazonAuth, function(req, res, next) {
 	res.end(JSON.stringify(devices));
 });
 
-app.get('/hoco/api/:applianceId', checkAmazonAuth, function(req, res, next) {
+app.get('/hoco/api/:applianceId', checkOAuth, function(req, res, next) {
         console.log('applianceId: ' + req.params.applianceId);
         console.log('value: ' + req.query.value);
 	var device = data.devices[req.params.applianceId];
