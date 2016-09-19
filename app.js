@@ -75,7 +75,7 @@ app.use(cookieParser());
 app.use(session({store: new MemoryStore({reapInterval: 5 * 60 * 1000}), secret: 'abracadabra', resave: true, saveUninitialized: true}));
 
 // basic authentication handler
-app.use(function(req, res, next) {
+function checkBasicAuth(req, res, next) {
     function unauthorized(res) {
         res.set('WWW-Authenticate', 'Basic realm=Authorization Required');
         return res.sendStatus(401);
@@ -92,10 +92,10 @@ app.use(function(req, res, next) {
         } else
             return unauthorized(res);
     }
-});
+}
 
 // serve static content
-app.use('/hoco', express.static(__dirname + '/static'));
+app.use('/hoco', checkBasicAuth, express.static(__dirname + '/static'));
 
 // initialize node-red
 var redSettings = {
@@ -105,8 +105,8 @@ var redSettings = {
     functionGlobalContext: { }
 };
 red.init(server, redSettings);
-app.use(redSettings.httpAdminRoot, red.httpAdmin);
-app.use(redSettings.httpNodeRoot, red.httpNode);
+app.use(redSettings.httpAdminRoot, checkBasicAuth, red.httpAdmin);
+app.use(redSettings.httpNodeRoot, checkBasicAuth, red.httpNode);
 
 // oauth2 for alexa
 /*
@@ -240,82 +240,66 @@ function getAmazonProfile(token, cb) {
 		else
 			cb(null);
 	});
-//	https.get(url, function(res) {
-//		if (res.statusCode == 200) {
-//			cb(JSON.parse(res.body));
-//		} else
-//			cb(null);
-//	});
 }
 
-app.get('/hoco/api/devices', function(req, res, next) {
+function checkAmazonAuth(req, res, next) {
 	var token = req.query.token;
-	getAmazonProfile(token, function(profile) {
-		console.log('Amazon profile: ' + JSON.stringify(profile));
-		if (profile) {
-			if (profile.email === config.api.amazonEmail) {
-				devices = [];
-				Object.keys(data.devices).forEach(function(key) {
-					var val = data.devices[key];
-					var actions = [];
-					if (val.type === 'onoff') {
-						actions.push("turnOn");
-                                                actions.push("turnOff");
-					}
-					var device = {
-                                                "applianceId": key,
-                                                "manufacturerName": "HoCo",
-                                                "modelName": "Virtual Node:Device Combination",
-                                                "version": "1.1",
-                                                "friendlyName": val.name,
-                                                "friendlyDescription": val.description,
-                                                "isReachable": true,
-                                                "actions": actions,
-                                                "additionalApplianceDetails": {
-                                                }
-					};
-					devices.push(device);
-				});
-				console.log('send result');
-				res.end(JSON.stringify(devices));
+        getAmazonProfile(token, function(profile) {
+                if (profile) {
+                        if (profile.email === config.api.amazonEmail) {
+				next();
 				return;
 			}
 		}
-		console.log('send failure');
-		res.writeHead(403);
-		res.end('{}');
+	        res.writeHead(403);
+	        res.end('{}');
 	});
+}
+
+app.get('/hoco/api/devices', checkAmazonAuth, function(req, res, next) {
+	devices = [];
+	Object.keys(data.devices).forEach(function(key) {
+		var val = data.devices[key];
+		var actions = [];
+		if (val.type === 'onoff') {
+			actions.push("turnOn");
+                        actions.push("turnOff");
+		}
+		var device = {
+                        "applianceId": key,
+                        "manufacturerName": "HoCo",
+                        "modelName": "Virtual Node:Device Combination",
+                        "version": "1.1",
+                        "friendlyName": val.name,
+                        "friendlyDescription": val.description,
+                        "isReachable": true,
+                        "actions": actions,
+                        "additionalApplianceDetails": {
+                        }
+		};
+		devices.push(device);
+	});
+	console.log('send result');
+	res.end(JSON.stringify(devices));
 });
 
-app.get('/hoco/api/:applianceId', function(req, res, next) {
+app.get('/hoco/api/:applianceId', checkAmazonAuth, function(req, res, next) {
         console.log('applianceId: ' + req.params.applianceId);
         console.log('value: ' + req.query.value);
-        var token = req.query.token;
-        getAmazonProfile(token, function(profile) {
-                console.log('Amazon profile: ' + JSON.stringify(profile));
-                if (profile) {
-                        if (profile.email === config.api.amazonEmail) {
-				var device = data.devices[req.params.applianceId];
-				if (device.type === "onoff") {
-					var val;
-					if (req.query.value === "on")
-						val = device.onvalue;
-                                        if (req.query.value === "off")
-                                                val = device.offvalue;
-					if (val)
-						mqttPublish('/hoco/' + device.node + '/' + device.device + '/' + device.property + '/$set', val, false);
-				}
-                                console.log('send result');
-                                response = {
-                                };
-                                res.end(JSON.stringify(response));
-                                return;
-                        }
-                }
-                console.log('send failure');
-                res.writeHead(403);
-                res.end('{}');
-        });
+	var device = data.devices[req.params.applianceId];
+	if (device.type === "onoff") {
+		var val;
+		if (req.query.value === "on")
+			val = device.onvalue;
+                if (req.query.value === "off")
+                        val = device.offvalue;
+		if (val)
+			mqttPublish('/hoco/' + device.node + '/' + device.device + '/' + device.property + '/$set', val, false);
+	}
+        console.log('send result');
+        response = {
+        };
+        res.end(JSON.stringify(response));
 });
 
 // save changed data
@@ -393,11 +377,11 @@ function fotaCheckForUpdate(cver, hw, rev, type) {
 	return null;
 }
 
-app.get('/hoco/fota/upload', (req, res) => {
-	res.redirect('/fota/upload.html');
+app.get('/hoco/fota/upload', checkBasicAuth, (req, res) => {
+	res.redirect('/hoco/fota/upload.html');
 });
 
-app.post('/hoco/fota/upload', (req, res) => {
+app.post('/hoco/fota/upload', checkBasicAuth, (req, res) => {
 	var form = new formidable.IncomingForm();
 	form.parse(req, (err, fields, files) => {
 		if (err)
@@ -428,7 +412,7 @@ app.post('/hoco/fota/upload', (req, res) => {
 	});
 });
 
-app.get('/hoco/fota/download', (req, res) => {
+app.get('/hoco/fota/download', checkBasicAuth, (req, res) => {
 	var fn = fotaGetFilename(req.query);
 	var fullfn = __dirname + '/firmware/' + fn;
 	fs.access(fullfn, (err) => {
@@ -577,7 +561,7 @@ mqttConn.on('message', (topic, message) => {
 });
 
 server.listen(config.web.port);
-red.start();
+//red.start();
 console.log("Web listening on port " + config.web.port);
 fotaServer.listen(config.web.fotaPort);
 console.log("FOTA listening on port " + config.web.fotaPort);
