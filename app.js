@@ -23,27 +23,35 @@ var data = {
 		"holidays": [],
 		"vacation": []
 	},
-	devices: []
+	devices: {}
 };
 try { data = JSON.parse(fs.readFileSync(__dirname + "/data.json")); } catch (err) {}
 
-data.dates = {
-	"holidays": [
-		1473379200,
-		1473811200
-	],
-	"vacation": [
-		{
+// add some dummy data
+if (data.dates.holidays.length == 0) {
+	data.dates.holidays.push(1473379200);
+	data.dates.holidays.push(1473811200);
+}
+if (data.dates.vacation.length == 0) {
+	data.dates.vacation.push({
 			"from": 1473033600,
 			"to": 1473206400
-		}
-	]
-};
+	});
+}
+if (data.devices == null) {
+	data.devices = {
+		"HoCo001": { "name": "light", "node": "HoCo_0C23FA", "device": "LedRed", "property": "on", "type": "onoff", "onvalue": "1", "offvalue": "0", "description": "Deckenleuchte Wohnzimmer" },
+		"HoCo002": { "name": "garden", "node": "HoCo_0C23FA", "device": "WaterFlow", "property": "count", "type": "read", "description": "Durchfluss Gartenbewaesserung" }
+	};
+}
 
-data.devices = {
-	"HoCo001": { "name": "light", "node": "HoCo_0C23FA", "device": "LedRed", "property": "on", "type": "onoff", "onvalue": "1", "offvalue": "0", "description": "Deckenleuchte Wohnzimmer" },
-	"HoCo002": { "name": "garden", "node": "HoCo_0C23FA", "device": "WaterFlow", "property": "count", "type": "read", "description": "Durchfluss Gartenbewaesserung" }
-};
+// save changed data
+function dataSave() {
+	fs.writeFile(__dirname + "/data.json", JSON.stringify(data), {encoding: 'utf8'}, (err) => {
+		if (err)
+			console.log('Error writing data');
+	});
+}
 
 // ensure directories exist
 try { fs.mkdirSync(__dirname + '/firmware'); } catch (err) {}
@@ -62,18 +70,24 @@ if (config.web.ssl.enabled) {
 } else {
 	server = http.createServer(app);
 }
+
+// create express app and server for always unencrypted FOTA download
 var fotaApp = express();
 var fotaServer = http.createServer(fotaApp);
 
-// logging requests
+// logging incoming requests
 app.use(logger('dev'));
+fotaApp.use(logger('dev'));
 //app.use(logger(':remote-addr :referrer :method :url :status :response-time ms - :res[content-length]'));
 
-// parsing requests
+// global request parsing and session handling
 app.use(bodyParser.urlencoded({extended: true}));
 app.use(express.query());
 app.use(cookieParser());
 app.use(session({store: new MemoryStore({reapInterval: 5 * 60 * 1000}), secret: 'abracadabra', resave: true, saveUninitialized: true}));
+
+// serve static content
+app.use('/hoco', express.static(__dirname + '/static'));
 
 // basic authentication handler
 function checkBasicAuth(req, res, next) {
@@ -95,23 +109,33 @@ function checkBasicAuth(req, res, next) {
     }
 }
 
-// serve static content
-app.use('/hoco', express.static(__dirname + '/static'));
+// login with amazon oauth provider for alexa
+function getAmazonProfile(token, cb) {
+	var url = 'https://api.amazon.com/user/profile?access_token=' + token;
+	request(url, function(error, response, body) {
+		if (response.statusCode == 200)
+			cb(JSON.parse(body));
+		else
+			cb(null);
+	});
+}
 
-// initialize node-red
-var redSettings = {
-    httpAdminRoot: '/hoco/red',
-    httpNodeRoot: '/hoco/redapi',
-    userDir: __dirname + '/nodered',
-    functionGlobalContext: { }
-};
-red.init(server, redSettings);
-app.use(redSettings.httpAdminRoot, checkBasicAuth, red.httpAdmin);
-app.use(redSettings.httpNodeRoot, checkBasicAuth, red.httpNode);
+function checkAmazonAuth(req, res, next) {
+	var token = req.query.token;
+        getAmazonProfile(token, function(profile) {
+                if (profile) {
+                        if (profile.email === config.api.amazonEmail) {
+				next();
+				return;
+			}
+		}
+	        res.writeHead(403);
+	        res.end('{}');
+	});
+}
 
-// oauth2 for alexa
+// local oauth2 provider for alexa
 var oauthGrants = {};
-
 var oauthProvider = new OAuth2Provider(config.api.localOAuthOptions);
 
 oauthProvider.on('enforce_login', function(req, res, authorize_url, next) {
@@ -202,9 +226,14 @@ app.get('/hoco/login', function(req, res, next) {
 });
 
 app.post('/hoco/login', function(req, res, next) {
-	req.session.user = req.body.username;
-	res.writeHead(303, {Location: req.body.next || '/'});
-	res.end();
+	if (req.body.username in config.api.localOAuthCredentials && config.api.localOAuthCredentials[req.body.username] == req.body.password) {
+		req.session.user = req.body.username;
+		res.writeHead(303, {Location: req.body.next || '/'});
+		res.end();
+	} else {
+		res.writeHead(401);
+		res.end("Access Denied");
+	}
 });
 
 app.get('/hoco/logout', function(req, res, next) {
@@ -214,42 +243,11 @@ app.get('/hoco/logout', function(req, res, next) {
 	});
 });
 
-app.get('/hoco/privacypolicy', function (req, res) {
-	res.send('this is the hoco Privacy Policy URL placeholder');
-});
-
-app.get('/hoco/termsofuse', function (req, res) {
-        res.send('this is the hoco Terms of Use URL placeholder');
-});
-
-function getAmazonProfile(token, cb) {
-	var url = 'https://api.amazon.com/user/profile?access_token=' + token;
-	request(url, function(error, response, body) {
-		if (response.statusCode == 200)
-			cb(JSON.parse(body));
-		else
-			cb(null);
-	});
-}
-
-function checkAmazonAuth(req, res, next) {
-	var token = req.query.token;
-        getAmazonProfile(token, function(profile) {
-                if (profile) {
-                        if (profile.email === config.api.amazonEmail) {
-				next();
-				return;
-			}
-		}
-	        res.writeHead(403);
-	        res.end('{}');
-	});
-}
-
 function checkLocalOAuth(req, res, next) {
 	oauthProvider.oauth()(req, res, oauthProvider.login()(req, res,next));
 }
 
+// oauth2 dispatcher (local or amazon)
 function checkOAuth(req, res, next) {
 	if (config.api.loginWithAmazon) {
 		checkAmazonAuth(req, res, next);
@@ -260,6 +258,7 @@ function checkOAuth(req, res, next) {
 	}
 }
 
+// api for alexa discovery
 app.get('/hoco/api/devices', checkOAuth, function(req, res, next) {
 	devices = [];
 	Object.keys(data.devices).forEach(function(key) {
@@ -287,6 +286,7 @@ app.get('/hoco/api/devices', checkOAuth, function(req, res, next) {
 	res.end(JSON.stringify(devices));
 });
 
+// api for alexa control
 app.get('/hoco/api/:applianceId', checkOAuth, function(req, res, next) {
         console.log('applianceId: ' + req.params.applianceId);
         console.log('value: ' + req.query.value);
@@ -306,15 +306,7 @@ app.get('/hoco/api/:applianceId', checkOAuth, function(req, res, next) {
         res.end(JSON.stringify(response));
 });
 
-// save changed data
-function dataSave() {
-	fs.writeFile(__dirname + "/data.json", JSON.stringify(data), {encoding: 'utf8'}, (err) => {
-		if (err)
-			console.log('Error writing data');
-	});
-}
-
-// FOTA file upload and download
+// FOTA helper functions
 function fotaGetFilename(fields) {
 	return fields.hw + '_r' + fields.rev + '_' + fields.type + "_v" + fields.major + "." + fields.minor + "-" + fields.build + ".bin";
 }
@@ -381,6 +373,7 @@ function fotaCheckForUpdate(cver, hw, rev, type) {
 	return null;
 }
 
+// FOTA file upload
 app.get('/hoco/fota/upload', checkBasicAuth, (req, res) => {
 	res.redirect('/hoco/fota/upload.html');
 });
@@ -416,6 +409,7 @@ app.post('/hoco/fota/upload', checkBasicAuth, (req, res) => {
 	});
 });
 
+// FOTA file download (unencrypted port)
 fotaApp.get('/hoco/fota/download', checkBasicAuth, (req, res) => {
 	var fn = fotaGetFilename(req.query);
 	var fullfn = __dirname + '/firmware/' + fn;
@@ -430,7 +424,7 @@ fotaApp.get('/hoco/fota/download', checkBasicAuth, (req, res) => {
 	});
 });
 
-// Config
+// node config helper
 function getConfig(deviceId, hw, rev) {
 	console.log("getConfig");
 	try {
@@ -460,57 +454,6 @@ function getConfig(deviceId, hw, rev) {
 // MQTT connection
 var mqttUrl = config.mqtt.protocol + '://' + config.mqtt.host + ':' + config.mqtt.port;
 var mqttConn = mqtt.connect(mqttUrl, { username: config.mqtt.username, password: config.mqtt.password });
-
-function mqttPublish(topic, message, retain) {
-	console.log('MQTT publishing');
-	console.log('topic: ' + topic);
-	console.log('data: ' + message);
-	mqttConn.publish(topic, message, { qos: 0, retain: retain ? 1 : 0 });
-}
-
-var publishTimeInterval;
-
-function mqttPublishTime() {
-	var utc = moment.utc();
-	mqttPublish('/hoco/$time/$epoch', Math.floor(utc / 1000).toString(), false);
-}
-
-function mqttPublishTimezone() {
-	var utc = moment.utc();
-	var off = -moment.tz.zone(config.time.timezone).offset(utc);
-	mqttPublish('/hoco/$time/$zone', (off * 60).toString(), true);
-}
-
-function mqttPublishDates() {
-	var utc = moment.utc();
-	var dates = {
-		h: [],
-		v: {}
-	};
-	// find next two holiday entries
-	data.dates.holidays.sort((a,b) => { return a - b; });
-	var c = 0;
-	for (var i = 0; i < data.dates.holidays.length; i++) {
-		if (data.dates.holidays[i] > Math.floor(utc / 1000)) {
-			dates.h.push(data.dates.holidays[i]);
-			c++;
-			if (c >= 2)
-				break;
-		}
-	}
-	// find next vacation entry
-	data.dates.vacation.sort((a,b) => { return a.from - b.from; });
-	for (var i = 0; i < data.dates.vacation.length; i++) {
-		if (data.dates.vacation[i].to > Math.floor(utc / 1000)) {
-			dates.v = {
-				f: data.dates.vacation[i].from,
-				t: data.dates.vacation[i].to
-			};
-			break;
-		}
-	}
-	mqttPublish('/hoco/$time/$dates', JSON.stringify(dates), true);
-}
 
 mqttConn.on('error', (err) => {
 	console.log('MQTT error: ' + err);
@@ -564,6 +507,79 @@ mqttConn.on('message', (topic, message) => {
 	}
 });
 
+// MQTT helper
+function mqttPublish(topic, message, retain) {
+	console.log('MQTT publishing');
+	console.log('topic: ' + topic);
+	console.log('data: ' + message);
+	mqttConn.publish(topic, message, { qos: 0, retain: retain ? 1 : 0 });
+}
+
+var publishTimeInterval;
+
+function mqttPublishTime() {
+	var utc = moment.utc();
+	mqttPublish('/hoco/$time/$epoch', Math.floor(utc / 1000).toString(), false);
+}
+
+function mqttPublishTimezone() {
+	var utc = moment.utc();
+	var off = -moment.tz.zone(config.time.timezone).offset(utc);
+	mqttPublish('/hoco/$time/$zone', (off * 60).toString(), true);
+}
+
+function mqttPublishDates() {
+	var utc = moment.utc();
+	var dates = {
+		h: [],
+		v: {}
+	};
+	// find next two holiday entries
+	data.dates.holidays.sort((a,b) => { return a - b; });
+	var c = 0;
+	for (var i = 0; i < data.dates.holidays.length; i++) {
+		if (data.dates.holidays[i] > Math.floor(utc / 1000)) {
+			dates.h.push(data.dates.holidays[i]);
+			c++;
+			if (c >= 2)
+				break;
+		}
+	}
+	// find next vacation entry
+	data.dates.vacation.sort((a,b) => { return a.from - b.from; });
+	for (var i = 0; i < data.dates.vacation.length; i++) {
+		if (data.dates.vacation[i].to > Math.floor(utc / 1000)) {
+			dates.v = {
+				f: data.dates.vacation[i].from,
+				t: data.dates.vacation[i].to
+			};
+			break;
+		}
+	}
+	mqttPublish('/hoco/$time/$dates', JSON.stringify(dates), true);
+}
+
+// other mandatory pages
+app.get('/hoco/privacypolicy', function (req, res) {
+	res.send('this is the hoco Privacy Policy URL placeholder');
+});
+
+app.get('/hoco/termsofuse', function (req, res) {
+        res.send('this is the hoco Terms of Use URL placeholder');
+});
+
+// initialize node-red
+var redSettings = {
+    httpAdminRoot: '/hoco/red',
+    httpNodeRoot: '/hoco/redapi',
+    userDir: __dirname + '/nodered',
+    functionGlobalContext: { }
+};
+red.init(server, redSettings);
+app.use(redSettings.httpAdminRoot, checkBasicAuth, red.httpAdmin);
+app.use(redSettings.httpNodeRoot, checkBasicAuth, red.httpNode);
+
+// start listening
 server.listen(config.web.port);
 //red.start();
 console.log("Web listening on port " + config.web.port);
