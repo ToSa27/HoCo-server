@@ -50,7 +50,6 @@ function dbWriteMqtt(topic, message) {
 
 // ensure directories exist
 try { fs.mkdirSync(__dirname + '/firmware'); } catch (err) {}
-try { fs.mkdirSync(__dirname + '/hwconfig'); } catch (err) {}
 try { fs.mkdirSync(__dirname + '/nodered'); } catch (err) {}
 
 // create express app and server
@@ -409,30 +408,23 @@ fotaApp.get('/hoco/fota/download', checkBasicAuth, (req, res) => {
 });
 
 // node config helper
-function getConfig(deviceId, hw, rev) {
+function getConfig(deviceId, hw, rev, cb) {
 	console.log("getConfig");
-	try {
-		var fn = deviceId + '.json';
-		var fullfn = __dirname + '/hwconfig/device/' + fn;
-		fs.accessSync(fullfn);
-		var cs = fs.readFileSync(fullfn, {encoding: 'utf8'});
-		var c = JSON.parse(cs);
-		console.log("device level config: " + JSON.stringify(c));
-		return c;
-	} catch (ex) {
-		try {
-			var fn = hw + '_r' + rev + '.json';
-			var fullfn = __dirname + '/hwconfig/hwrev/' + fn;
-			fs.accessSync(fullfn);
-			var cs = fs.readFileSync(fullfn, {encoding: 'utf8'});
-			var c = JSON.parse(cs);
-			console.log("hw/rev level config: " + JSON.stringify(c));
-			return c;
-		} catch (ex) {
-			console.log("no config found");
-			return null;
+	dbpool.query('SELECT name, type, config FROM device WHERE nodeid = ? ORDER BY sequence, name', [deviceId], function(err, rows, fields) {
+		if (err) {
+			console.log("Error in fotaGetLatest: " + err);
+			return;
 		}
-	}
+		var c = { d: [] };
+		for (var i = 0; i < rows.length; i++) {
+			d.push({
+				t: rows[i].type,
+				n: rows[i].name,
+				c: JSON.parse(rows[i].config)
+			});
+		}
+		cb(c);
+	});
 }
 
 // MQTT connection
@@ -478,9 +470,9 @@ mqttConn.on('message', (topic, message) => {
 			mqttPublishTime();
 		} else if (topicParts[3] == "$config" && topicParts.length == 4) {
 			var entries = JSON.parse(message);
-			var hwc = getConfig(deviceId, entries.hw, entries.rev);
-			if (hwc)
+			getConfig(deviceId, entries.hw, entries.rev, function(hwc) {
 				mqttPublish("/hoco/" + deviceId + "/$config/$set", JSON.stringify(hwc), false);
+			});
 		} else if (topicParts[3] == "$fota" && topicParts[4] == "check") {
 			var entries = JSON.parse(message);
 			if (entries.HARDWARE) {
