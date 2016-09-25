@@ -48,44 +48,6 @@ function dbWriteMqtt(topic, message) {
 	});
 }
 
-/*
-// load data
-var data = {
-	dates: {
-		"holidays": [],
-		"vacation": []
-	},
-	devices: {}
-};
-try { data = JSON.parse(fs.readFileSync(__dirname + "/data.json")); } catch (err) {}
-
-// add some dummy data
-if (data.dates.holidays.length == 0) {
-	data.dates.holidays.push(1473379200);
-	data.dates.holidays.push(1473811200);
-}
-if (data.dates.vacation.length == 0) {
-	data.dates.vacation.push({
-			"from": 1473033600,
-			"to": 1473206400
-	});
-}
-if (data.devices == null) {
-	data.devices = {
-		"HoCo001": { "name": "light", "node": "HoCo_0C23FA", "device": "LedRed", "property": "on", "type": "onoff", "onvalue": "1", "offvalue": "0", "description": "Deckenleuchte Wohnzimmer" },
-		"HoCo002": { "name": "garden", "node": "HoCo_0C23FA", "device": "WaterFlow", "property": "count", "type": "read", "description": "Durchfluss Gartenbewaesserung" }
-	};
-}
-
-// save changed data
-function dataSave() {
-	fs.writeFile(__dirname + "/data.json", JSON.stringify(data), {encoding: 'utf8'}, (err) => {
-		if (err)
-			console.log('Error writing data');
-	});
-}
-*/
-
 // ensure directories exist
 try { fs.mkdirSync(__dirname + '/firmware'); } catch (err) {}
 try { fs.mkdirSync(__dirname + '/hwconfig'); } catch (err) {}
@@ -345,65 +307,54 @@ function fotaGetFilename(fields) {
 }
 
 function fotaSetLatest(fields) {
-	if (!("firmware" in data))
-		data["firmware"] = {};
-	var fw = data.firmware;
-	if (!(fields.hw in fw))
-		fw[fields.hw] = {};
-	var hw = fw[fields.hw];
-	if (!(fields.rev in hw))
-		hw[fields.rev] = {};
-	var rev = hw[fields.rev];
-	if (!(fields.type in rev))
-		rev[fields.type] = {};
-	var type = rev[fields.type];
-	type["major"] = fields.major;
-	type["minor"] = fields.minor;
-	type["build"] = fields.build;
-	dataSave();
+	dbpool.query('INSERT INTO firmware SET hwtype = ?, hwrev = ?, fwtype = ?, major = ?, minor = ?, build = ?', [fields.hw, fields.rev, fields.type, fields.major, fields.minor, fields.build], function(err, rows, fields) {
+		if (err)
+			console.log("Error in fotaSetLatest: " + err);
+	});
 }
 
-function fotaGetLatest(fields) {
-	if (!("firmware" in data))
-		return null;
-	var fw = data.firmware;
-	if (!(fields.hw in fw))
-		return null;
-	var hw = fw[fields.hw];
-	if (!(fields.rev in hw))
-		return null;
-	var rev = hw[fields.rev];
-	if (!(fields.type in rev))
-		return null;
-	var type = rev[fields.type];
-	var latestRes = {
-		hw: fields.hw,
-		rev: fields.rev,
-		type: fields.type,
-		major: type.major,
-		minor: type.minor,
-		build: type.build
-	};
-	return latestRes;
-}
-
-function fotaCheckForUpdate(cver, hw, rev, type) {
-	var nver = fotaGetLatest({ hw: hw, rev: rev, type: type });
-	if (!nver)
-		return null;
-	if (!cver)
-		return nver;
-	if (nver.major > cver.major)
-		return nver;
-	else if (nver.major == cver.major) {
-		if (nver.minor > cver.minor)
-			return nver;
-		else if (nver.minor == cver.minor) {
-			if (nver.build > cver.build)
-				return nver;
+function fotaGetLatest(fields, cb) {
+	dbpool.query('SELECT major, minor, build FROM firmware WHERE hwtype = ? AND hwrev = ? AND fwtype = ? ORDER BY major DESC, minor DESC, build DESC LIMIT 1', [fields.hw, fields.rev, fields.type], function(err, rows, fields) {
+		if (err) {
+			console.log("Error in fotaGetLatest: " + err);
+			cb(null);
+		} else if (rows.length > 0) {
+	        	var latestRes = {
+        	        	hw: fields.hw,
+       		        	rev: fields.rev,
+       		        	type: fields.type,
+       	        		major: rows[0].major,
+       	        		minor: rows[0].minor,
+				build: rows[0].build
+			};
+			cb(latestRes);
+		} else {
+			cb(null);
 		}
-	}
-	return null;
+	});
+}
+
+function fotaCheckForUpdate(cver, hw, rev, type, cb) {
+	fotaGetLatest({ hw: hw, rev: rev, type: type }, function(nver) {
+		if (!nver)
+			cb(null);
+		else if (!cver)
+			cb(nver);
+		else if (nver.major > cver.major)
+			cb(nver);
+		else if (nver.major == cver.major) {
+			if (nver.minor > cver.minor)
+				cb(nver);
+			else if (nver.minor == cver.minor) {
+				if (nver.build > cver.build)
+					cb(nver);
+				else
+					cb(null);
+			}
+		} else {
+			cb(null);
+		}
+	});
 }
 
 // FOTA file upload
@@ -535,15 +486,24 @@ mqttConn.on('message', (topic, message) => {
 			if (entries.HARDWARE) {
 				var hw = entries.HARDWARE.type;
 				var rev = entries.HARDWARE.rev;
-				var nver = fotaCheckForUpdate(entries.BOOTLOADER, hw, rev, "BOOTLOADER");
-				if (!nver)
-					nver = fotaCheckForUpdate(entries.FACTORY, hw, rev, "FACTORY");
-					if (!nver)
-						nver = fotaCheckForUpdate(entries.FIRMWARE, hw, rev, "FIRMWARE");
-				if (nver)
-					mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
-				else
-					mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify({ type: "none" }), false);
+				fotaCheckForUpdate(entries.BOOTLOADER, hw, rev, "BOOTLOADER", function(nver) {
+					if (nver)
+						mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
+					else {
+		                                fotaCheckForUpdate(entries.FACTORY, hw, rev, "FACTORY", function(nver) {
+                		                        if (nver)
+                                				mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
+                                        		else {
+				                                fotaCheckForUpdate(entries.FIRMWARE, hw, rev, "FIRMWARE", function(nver) {
+				                                        if (nver)
+				                                                mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
+				                                        else
+										mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify({ type: "none" }), false);
+								});
+							}
+						});
+					}
+				});
 			}
 		}
 	}
@@ -576,45 +536,27 @@ function mqttPublishDates() {
 		h: [],
 		v: {}
 	};
-	// find next two holiday entries
-	dbpool.query('SELECT day FROM holiday WHERE day > ? ORDER BY day LIMIT 2', [moment.tz.zone(config.time.timezone).startOf('day')], function(err, rows, fields) {
+	dbpool.query('SELECT day FROM holiday WHERE day > ? ORDER BY day LIMIT 2', [moment.tz(config.time.timezone).format("YYYY-MM-DD")], function(err, rows, fields) {
+		if (err) {
+			console.log("Error in mqttPublishDates: " + err);
+			return;
+		}
 		for (var i = 0; i < rows.length; i++)
-			dates.h.push(rows[i].day);
+			dates.h.push(moment(rows[i].day).tz(config.time.timezone).unix());
+	        dbpool.query('SELECT first, last FROM vacation WHERE last > ? ORDER BY first LIMIT 1', [moment.tz(config.time.timezone).format("YYYY-MM-DD")], function(err, rows, fields) {
+	                if (err) {
+	                        console.log("Error in mqttPublishDates: " + err);
+	                        return;
+	                }
+	                if (rows.length > 0) {
+	                        dates.v = {
+	                                f: moment(rows[0].first).tz(config.time.timezone).unix(),
+	                                t: moment(rows[0].last).tz(config.time.timezone).unix()
+	                        };
+	                }
+		        mqttPublish('/hoco/$time/$dates', JSON.stringify(dates), true);	
+	        });
 	});
-/*
-	data.dates.holidays.sort((a,b) => { return a - b; });
-	var c = 0;
-	for (var i = 0; i < data.dates.holidays.length; i++) {
-		if (data.dates.holidays[i] > Math.floor(utc / 1000)) {
-			dates.h.push(data.dates.holidays[i]);
-			c++;
-			if (c >= 2)
-				break;
-		}
-	}
-*/
-	// find next vacation entry
-	dbpool.query('SELECT first, last FROM vacation WHERE last > ? ORDER BY first LIMIT 1', [moment.tz.zone(config.time.timezone).startOf('day')], function(err, rows, fields) {
-		if (rows.length > 0) { 
-			dates.v = {
-				f: rows[0].first,
-				t: rows[0].last
-			};
-		}
-	});
-/*
-	data.dates.vacation.sort((a,b) => { return a.from - b.from; });
-	for (var i = 0; i < data.dates.vacation.length; i++) {
-		if (data.dates.vacation[i].to > Math.floor(utc / 1000)) {
-			dates.v = {
-				f: data.dates.vacation[i].from,
-				t: data.dates.vacation[i].to
-			};
-			break;
-		}
-	}
-*/
-	mqttPublish('/hoco/$time/$dates', JSON.stringify(dates), true);
 }
 
 // other mandatory pages
