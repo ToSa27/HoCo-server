@@ -429,13 +429,22 @@ mqttLogConn.on('message', (topic, message) => {
 		var command = '';
 		if (topicParts[3].lastIndexOf("$", 0) == 0) {
 			command = topicParts[3];
-		} else if (topicParts[4].lastIndexOf("$", 0) == 0) {
+		} else {
 			devicename = topicParts[3];
-			command = topicParts[4];
-		} else if (topicParts[5].lastIndexOf("$", 0) == 0) {
-			devicename = topicParts[3];
-			property = topicParts[4];
-			command = topicParts[5];
+			if (topicParts[4]) {
+				if (topicParts[4].lastIndexOf("$", 0) == 0) {
+					command = topicParts[4];
+				} else {
+					property = topicParts[4];
+					if (topicParts[5]) {
+						if (topicParts[5].lastIndexOf("$", 0) == 0) {
+							command = topicParts[5];
+						} else {
+							console.log("no command in topic: " + topic);
+						}
+					}
+				}
+			}
 		}
 		dbpool.query('INSERT INTO mqttlog SET ts = NOW(), ?', {nodeid: nodeid, devicename: devicename, property: property, command: command, message: message}, function(err, result) {
 			if (err)
