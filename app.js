@@ -30,24 +30,6 @@ var dbpool = mysql.createPool({
 	debug: false
 });
 
-// database helper functions
-function dbWriteMqtt(topic, message) {
-	dbpool.getConnection(function(err, conn) {
-		if (err) {
-			console.log("error writing to database");
-			return;
-		}
-		var ts = moment.utc();
-		conn.query('INSERT INTO mqtt SET ts = NOW(), ?', {topic: topic, message: message}, function(err, result) {
-			conn.release();
-			if (err) {
-	                        console.log("error writing to database");
-        	                return;
-			}
-		});
-	});
-}
-
 // ensure directories exist
 try { fs.mkdirSync(__dirname + '/firmware'); } catch (err) {}
 try { fs.mkdirSync(__dirname + '/nodered'); } catch (err) {}
@@ -437,7 +419,31 @@ mqttLogConn.on('connect', () => {
 });
 
 mqttLogConn.on('message', (topic, message) => {
-	dbWriteMqtt(topic, message);
+	var topicParts = topic.split('/');
+	if (topicParts[1] != "hoco")
+		return;
+	if (topicParts[2].lastIndexOf("$", 0) != 0) {
+		var nodeid = topicParts[2];
+		var devicename = '';
+		var property = '';
+		var command = '';
+		if (topicParts[3].lastIndexOf("$", 0) == 0) {
+			command = topicParts[3];
+		} else if (topicParts[4].lastIndexOf("$", 0) == 0) {
+			devicename = topicParts[3];
+			command = topicParts[4];
+		} else if (topicParts[5].lastIndexOf("$", 0) == 0) {
+			devicename = topicParts[3];
+			property = topicParts[4];
+			command = topicParts[5];
+		}
+		dbpool.query('INSERT INTO mqttlog SET ts = NOW(), ?', {nodeid: nodeid, devicename: devicename, property: property, command: command, message: message}, function(err, result) {
+				conn.release();
+				if (err)
+					console.log("error writing to database");
+			});
+		});
+	}
 });
 
 mqttConn.on('error', (err) => {
@@ -482,14 +488,14 @@ mqttConn.on('message', (topic, message) => {
 					if (nver)
 						mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
 					else {
-		                                fotaCheckForUpdate(entries.FACTORY, hw, rev, "FACTORY", function(nver) {
-                		                        if (nver)
-                                				mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
-                                        		else {
-				                                fotaCheckForUpdate(entries.FIRMWARE, hw, rev, "FIRMWARE", function(nver) {
-				                                        if (nver)
-				                                                mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
-				                                        else
+						fotaCheckForUpdate(entries.FACTORY, hw, rev, "FACTORY", function(nver) {
+				 			if (nver)
+								mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
+							else {
+								fotaCheckForUpdate(entries.FIRMWARE, hw, rev, "FIRMWARE", function(nver) {
+									if (nver)
+										mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify(nver), false);
+									else
 										mqttPublish("/hoco/" + deviceId + "/$fota", JSON.stringify({ type: "none" }), false);
 								});
 							}
@@ -523,7 +529,6 @@ function mqttPublishTimezone() {
 }
 
 function mqttPublishDates() {
-//	var utc = moment.utc();
 	var dates = {
 		h: [],
 		v: {}
