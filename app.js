@@ -15,9 +15,41 @@ var red = require("node-red");
 var moment = require('moment-timezone');
 var request = require('request');
 var OAuth2Provider = require('oauth2-provider').OAuth2Provider;
+var mysql = require('mysql');
 
-// load config and data
+// load config
 var config = JSON.parse(fs.readFileSync(__dirname + "/config.json"));
+
+// connect to database
+var dbpool = mysql.createPool({
+	connectionLimit: 100,
+	host: config.database.host,
+	user: config.database.username,
+	password: config.database.password,
+	database: config.database.database,
+	debug: false
+});
+
+// database helper functions
+function dbWriteMqtt(topic, message) {
+	dbpool.getConnection(function(err, conn) {
+		if (err) {
+			console.log("error writing to database");
+			return;
+		}
+		var ts = moment.utc();
+		conn.query('INSERT INTO mqtt SET ts = NOW(), ?', {topic: topic, message: message}, function(err, result) {
+			conn.release();
+			if (err) {
+	                        console.log("error writing to database");
+        	                return;
+			}
+		});
+	});
+}
+
+/*
+// load data
 var data = {
 	dates: {
 		"holidays": [],
@@ -52,6 +84,7 @@ function dataSave() {
 			console.log('Error writing data');
 	});
 }
+*/
 
 // ensure directories exist
 try { fs.mkdirSync(__dirname + '/firmware'); } catch (err) {}
@@ -71,7 +104,7 @@ if (config.web.ssl.enabled) {
 	server = http.createServer(app);
 }
 
-// create express app and server for always unencrypted FOTA download
+// create express app and server for (unencrypted) FOTA download
 var fotaApp = express();
 var fotaServer = http.createServer(fotaApp);
 
@@ -454,6 +487,15 @@ function getConfig(deviceId, hw, rev) {
 // MQTT connection
 var mqttUrl = config.mqtt.protocol + '://' + config.mqtt.host + ':' + config.mqtt.port;
 var mqttConn = mqtt.connect(mqttUrl, { username: config.mqtt.username, password: config.mqtt.password });
+var mqttLogConn = mqtt.connect(mqttUrl, { username: config.mqtt.username, password: config.mqtt.password });
+
+mqttLogConn.on('connect', () => {
+        mqttLogConn.subscribe('/hoco/#');
+});
+
+mqttLogConn.on('message', (topic, message) => {
+	dbWriteMqtt(topic, message);
+});
 
 mqttConn.on('error', (err) => {
 	console.log('MQTT error: ' + err);
@@ -463,7 +505,7 @@ mqttConn.on('error', (err) => {
 mqttConn.on('connect', () => {
 	console.log('MQTT connected');
 	mqttConn.subscribe('/hoco/+/$fota/check');
-        mqttConn.subscribe('/hoco/+/$config');
+	mqttConn.subscribe('/hoco/+/$config');
 	mqttConn.subscribe('/hoco/+/$time');
 	publishTimeInterval = setInterval(() => {
 		mqttPublishTime();
@@ -529,12 +571,17 @@ function mqttPublishTimezone() {
 }
 
 function mqttPublishDates() {
-	var utc = moment.utc();
+//	var utc = moment.utc();
 	var dates = {
 		h: [],
 		v: {}
 	};
 	// find next two holiday entries
+	dbpool.query('SELECT day FROM holiday WHERE day > ? ORDER BY day LIMIT 2', [moment.tz.zone(config.time.timezone).startOf('day')], function(err, rows, fields) {
+		for (var i = 0; i < rows.length; i++)
+			dates.h.push(rows[i].day);
+	});
+/*
 	data.dates.holidays.sort((a,b) => { return a - b; });
 	var c = 0;
 	for (var i = 0; i < data.dates.holidays.length; i++) {
@@ -545,7 +592,17 @@ function mqttPublishDates() {
 				break;
 		}
 	}
+*/
 	// find next vacation entry
+	dbpool.query('SELECT first, last FROM vacation WHERE last > ? ORDER BY first LIMIT 1', [moment.tz.zone(config.time.timezone).startOf('day')], function(err, rows, fields) {
+		if (rows.length > 0) { 
+			dates.v = {
+				f: rows[0].first,
+				t: rows[0].last
+			};
+		}
+	});
+/*
 	data.dates.vacation.sort((a,b) => { return a.from - b.from; });
 	for (var i = 0; i < data.dates.vacation.length; i++) {
 		if (data.dates.vacation[i].to > Math.floor(utc / 1000)) {
@@ -556,6 +613,7 @@ function mqttPublishDates() {
 			break;
 		}
 	}
+*/
 	mqttPublish('/hoco/$time/$dates', JSON.stringify(dates), true);
 }
 
