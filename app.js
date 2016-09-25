@@ -438,10 +438,8 @@ mqttLogConn.on('message', (topic, message) => {
 			command = topicParts[5];
 		}
 		dbpool.query('INSERT INTO mqttlog SET ts = NOW(), ?', {nodeid: nodeid, devicename: devicename, property: property, command: command, message: message}, function(err, result) {
-				conn.release();
-				if (err)
-					console.log("error writing to database");
-			});
+			if (err)
+				console.log("error writing to database");
 		});
 	}
 });
